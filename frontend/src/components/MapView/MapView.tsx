@@ -9,6 +9,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useFavorites } from '../../contexts/FavoriteContext';
 import LayerToggle from '../LayerToggle/LayerToggle';
 import PropertyPopup from '../PropertyPopup/PropertyPopup';
+import PropertyDetailsModal from '../PropertyDetailsModal/PropertyDetailsModal';
+import ComparisonModal from '../ComparisonModal/ComparisonModal';
 import DrawingToolsHandler from '../DrawingToolsHandler/DrawingToolsHandler';
 import SearchBar from '../SearchBar/SearchBar';
 import LoginModal from '../LoginModal/LoginModal';
@@ -47,6 +49,9 @@ const MapView: React.FC = () => {
   const [showFilters, setShowFilters] = useState(false);
   const [showPropertyList, setShowPropertyList] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [comparisonMode, setComparisonMode] = useState(false);
+  const [selectedForComparison, setSelectedForComparison] = useState<number[]>([]);
+  const [showComparison, setShowComparison] = useState(false);
 
   const { user, logout } = useAuth();
   const { favoriteIds } = useFavorites();
@@ -184,6 +189,41 @@ const MapView: React.FC = () => {
         });
       }
     }
+  };
+
+  const toggleComparisonMode = () => {
+    setComparisonMode(!comparisonMode);
+    if (comparisonMode) {
+      setSelectedForComparison([]);
+    }
+  };
+
+  const togglePropertyForComparison = (id: number) => {
+    setSelectedForComparison(prev => {
+      if (prev.includes(id)) {
+        return prev.filter(pid => pid !== id);
+      } else if (prev.length < 3) {
+        return [...prev, id];
+      }
+      return prev;
+    });
+  };
+
+  const handleCompare = () => {
+    if (selectedForComparison.length >= 2) {
+      setShowComparison(true);
+    }
+  };
+
+  const removeFromComparison = (id: number) => {
+    setSelectedForComparison(prev => prev.filter(pid => pid !== id));
+    if (selectedForComparison.length <= 2) {
+      setShowComparison(false);
+    }
+  };
+
+  const getComparisonProperties = () => {
+    return properties.filter(p => selectedForComparison.includes(p.properties.id));
   };
 
   return (
@@ -463,6 +503,68 @@ const MapView: React.FC = () => {
             </button>
           </div>
 
+          {/* Comparison Mode Toggle */}
+          {showPropertyList && !showFilters && (
+            <div style={{
+              padding: '12px',
+              borderBottom: '1px solid #f3f4f6'
+            }}>
+              <button
+                onClick={toggleComparisonMode}
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  border: comparisonMode ? 'none' : '1px solid #e5e7eb',
+                  borderRadius: '6px',
+                  background: comparisonMode ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : 'white',
+                  color: comparisonMode ? 'white' : '#6b7280',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  transition: 'all 0.2s'
+                }}
+              >
+                {comparisonMode ? '✓ Comparison Mode' : '⚖️ Compare Properties'}
+              </button>
+              
+              {comparisonMode && selectedForComparison.length > 0 && (
+                <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
+                  <div style={{
+                    flex: 1,
+                    padding: '8px',
+                    backgroundColor: '#f0f9ff',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    color: '#0369a1',
+                    fontWeight: 600,
+                    textAlign: 'center'
+                  }}>
+                    {selectedForComparison.length} selected
+                  </div>
+                  {selectedForComparison.length >= 2 && (
+                    <button
+                      onClick={handleCompare}
+                      style={{
+                        flex: 1,
+                        padding: '8px',
+                        border: 'none',
+                        borderRadius: '6px',
+                        background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                        color: 'white',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      Compare Now
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Content Area */}
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {showFilters && <FilterPanel onFilterChange={handleFilterChange} />}
@@ -470,6 +572,9 @@ const MapView: React.FC = () => {
               <PropertyList
                 properties={properties}
                 onPropertyClick={setSelectedProperty}
+                comparisonMode={comparisonMode}
+                selectedForComparison={selectedForComparison}
+                onToggleComparison={togglePropertyForComparison}
               />
             )}
             {!showFilters && !showPropertyList && (
@@ -533,8 +638,8 @@ const MapView: React.FC = () => {
           </MapContainer>
 
           {selectedProperty && (
-            <PropertyPopup
-              feature={selectedProperty}
+            <PropertyDetailsModal
+              property={selectedProperty}
               onClose={() => setSelectedProperty(null)}
             />
           )}
@@ -542,6 +647,14 @@ const MapView: React.FC = () => {
       </div>
 
       {showLoginModal && <LoginModal onClose={() => setShowLoginModal(false)} />}
+      
+      {showComparison && selectedForComparison.length >= 2 && (
+        <ComparisonModal
+          properties={getComparisonProperties()}
+          onClose={() => setShowComparison(false)}
+          onRemove={removeFromComparison}
+        />
+      )}
     </div>
   );
 };
