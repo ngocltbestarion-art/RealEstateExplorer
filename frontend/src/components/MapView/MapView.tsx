@@ -12,6 +12,7 @@ import PropertyPopup from '../PropertyPopup/PropertyPopup';
 import PropertyDetailsModal from '../PropertyDetailsModal/PropertyDetailsModal';
 import ComparisonModal from '../ComparisonModal/ComparisonModal';
 import DrawingToolsHandler from '../DrawingToolsHandler/DrawingToolsHandler';
+import HeatmapLayer from '../HeatmapLayer/HeatmapLayer';
 import SearchBar from '../SearchBar/SearchBar';
 import LoginModal from '../LoginModal/LoginModal';
 import FilterPanel from '../FilterPanel/FilterPanel';
@@ -52,6 +53,7 @@ const MapView: React.FC = () => {
   const [comparisonMode, setComparisonMode] = useState(false);
   const [selectedForComparison, setSelectedForComparison] = useState<number[]>([]);
   const [showComparison, setShowComparison] = useState(false);
+  const [showHeatmap, setShowHeatmap] = useState(false);
 
   const { user, logout } = useAuth();
   const { favoriteIds } = useFavorites();
@@ -579,10 +581,93 @@ const MapView: React.FC = () => {
             )}
             {!showFilters && !showPropertyList && (
               <div style={{ padding: '16px' }}>
-                <LayerToggle
-                  visibility={layersVisibility}
-                  onChange={setLayersVisibility}
-                />
+                {/* Heatmap Toggle */}
+                <div>
+                  <h4 style={{ fontSize: '16px', fontWeight: 700, marginBottom: '12px', color: '#111827' }}>
+                    🔥 Price Heatmap
+                  </h4>
+                  <button
+                    onClick={() => setShowHeatmap(!showHeatmap)}
+                    style={{
+                      width: '100%',
+                      padding: '12px',
+                      border: showHeatmap ? 'none' : '1px solid #e5e7eb',
+                      borderRadius: '8px',
+                      background: showHeatmap 
+                        ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)' 
+                        : 'white',
+                      color: showHeatmap ? 'white' : '#6b7280',
+                      cursor: 'pointer',
+                      fontSize: '14px',
+                      fontWeight: 600,
+                      transition: 'all 0.2s',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!showHeatmap) {
+                        e.currentTarget.style.backgroundColor = '#f9fafb';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!showHeatmap) {
+                        e.currentTarget.style.backgroundColor = 'white';
+                      }
+                    }}
+                  >
+                    {showHeatmap ? '✓ Heatmap Active' : 'Show Price Heatmap'}
+                  </button>
+                  
+                  {/* Legend */}
+                  {showHeatmap && (
+                    <div style={{
+                      marginTop: '16px',
+                      padding: '16px',
+                      backgroundColor: '#f9fafb',
+                      borderRadius: '8px',
+                      border: '1px solid #e5e7eb'
+                    }}>
+                      <h5 style={{ 
+                        fontSize: '13px', 
+                        fontWeight: 600, 
+                        marginBottom: '12px',
+                        color: '#374151'
+                      }}>
+                        Price Legend
+                      </h5>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <LegendItem color="#ff0000" label="$2M+" description="Most Expensive" />
+                        <LegendItem color="#ff8800" label="$1.5M - $2M" description="Very High" />
+                        <LegendItem color="#ffff00" label="$1M - $1.5M" description="High" />
+                        <LegendItem color="#00ff00" label="$500K - $1M" description="Medium" />
+                        <LegendItem color="#00ffff" label="$200K - $500K" description="Low" />
+                        <LegendItem color="#0000ff" label="< $200K" description="Most Affordable" />
+                      </div>
+                      <p style={{ 
+                        fontSize: '11px', 
+                        color: '#6b7280', 
+                        marginTop: '12px',
+                        lineHeight: '1.5',
+                        fontStyle: 'italic'
+                      }}>
+                        💡 Heatmap shows price density. Brighter areas indicate higher property values.
+                      </p>
+                    </div>
+                  )}
+                  
+                  {!showHeatmap && (
+                    <p style={{ 
+                      fontSize: '12px', 
+                      color: '#6b7280', 
+                      marginTop: '8px',
+                      lineHeight: '1.5'
+                    }}>
+                      Visualize property prices with color intensity. Red = expensive, Blue = affordable.
+                    </p>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -624,7 +709,7 @@ const MapView: React.FC = () => {
                   color: '#ef4444',
                   weight: 3,
                   fillColor: '#fca5a5',
-                  fillOpacity: 0.6
+                  fillOpacity: showHeatmap ? 0.2 : 0.6
                 })}
                 onEachFeature={(feature, layer) => {
                   layer.on('click', (e: L.LeafletMouseEvent) => {
@@ -632,6 +717,10 @@ const MapView: React.FC = () => {
                   });
                 }}
               />
+            )}
+
+            {showHeatmap && properties.length > 0 && (
+              <HeatmapLayer properties={properties} />
             )}
 
             <DrawingToolsHandler onDrawComplete={handleDrawComplete} />
@@ -658,5 +747,26 @@ const MapView: React.FC = () => {
     </div>
   );
 };
+
+const LegendItem: React.FC<{ color: string; label: string; description: string }> = ({ color, label, description }) => (
+  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+    <div style={{
+      width: '24px',
+      height: '24px',
+      borderRadius: '4px',
+      backgroundColor: color,
+      border: '1px solid rgba(0,0,0,0.1)',
+      flexShrink: 0
+    }} />
+    <div style={{ flex: 1 }}>
+      <div style={{ fontSize: '12px', fontWeight: 600, color: '#111827' }}>
+        {label}
+      </div>
+      <div style={{ fontSize: '10px', color: '#6b7280' }}>
+        {description}
+      </div>
+    </div>
+  </div>
+);
 
 export default MapView;
