@@ -1,21 +1,153 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { PropertyFeature } from '../../types/property';
 import { useFavorites } from '../../contexts/FavoriteContext';
 import { useAuth } from '../../contexts/AuthContext';
+import { getSimilarProperties } from '../../api/recommendationApi';
+
+interface Amenity {
+  id: string;
+  type: string;
+  name: string;
+  lat: number;
+  lon: number;
+  distance?: number;
+}
 
 interface PropertyDetailsModalProps {
   property: PropertyFeature;
   onClose: () => void;
+  showAmenities?: boolean;
+  onPropertySelect?: (property: PropertyFeature) => void;
 }
 
-const PropertyDetailsModal: React.FC<PropertyDetailsModalProps> = ({ property, onClose }) => {
+const AMENITY_ICONS: Record<string, string> = {
+  school: '🏫',
+  hospital: '🏥',
+  pharmacy: '💊',
+  supermarket: '🛒',
+  restaurant: '🍽️',
+  cafe: '☕',
+  park: '🌳',
+  bank: '🏦',
+  police: '👮',
+  fire_station: '🚒',
+  bus_station: '🚌',
+  subway_station: '🚇'
+};
+
+const PropertyDetailsModal: React.FC<PropertyDetailsModalProps> = ({ 
+  property, 
+  onClose, 
+  showAmenities = false,
+  onPropertySelect 
+}) => {
   const { user } = useAuth();
   const { favoriteIds, toggleFavorite } = useFavorites();
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [activeTab, setActiveTab] = useState<'details' | 'amenities'>('details');
+  const [amenities, setAmenities] = useState<Amenity[]>([]);
+  const [loadingAmenities, setLoadingAmenities] = useState(false);
+  const [recommendations, setRecommendations] = useState<PropertyFeature[]>([]);
+  const [loadingRecommendations, setLoadingRecommendations] = useState(false);
   
   const props = property.properties;
   const images = props.images || [props.primary_image || 'https://via.placeholder.com/800x600'];
   const isFavorite = favoriteIds.includes(props.id);
+
+  useEffect(() => {
+    if (showAmenities && activeTab === 'amenities') {
+      loadNearbyAmenities();
+    }
+  }, [activeTab, showAmenities]);
+
+  useEffect(() => {
+    loadRecommendations();
+  }, [property.properties.id]);
+
+  const loadRecommendations = async () => {
+    setLoadingRecommendations(true);
+    try {
+      const similar = await getSimilarProperties(property.properties.id);
+      setRecommendations(similar);
+    } catch (error) {
+      console.error('Failed to load recommendations:', error);
+    } finally {
+      setLoadingRecommendations(false);
+    }
+  };
+
+  const loadNearbyAmenities = async () => {
+    setLoadingAmenities(true);
+    try {
+      // Get property center
+      if (property.geometry.type !== 'Polygon') return;
+      
+      const coords = (property.geometry as any).coordinates[0];
+      const centerLat = coords.reduce((sum: number, c: number[]) => sum + c[1], 0) / coords.length;
+      const centerLon = coords.reduce((sum: number, c: number[]) => sum + c[0], 0) / coords.length;
+
+      // Fetch amenities from Overpass API
+      const types = ['school', 'hospital', 'pharmacy', 'supermarket', 'restaurant', 'cafe', 'park', 'bank'];
+      const radius = 1000;
+      const amenityFilter = types.map(t => `node["amenity"="${t}"](around:${radius},${centerLat},${centerLon});`).join('\n');
+      
+      const query = `
+        [out:json][timeout:25];
+        (
+          ${amenityFilter}
+        );
+        out body;
+      `;
+
+      const response = await fetch('https://overpass-api.de/api/interpreter', {
+        method: 'POST',
+        body: query
+      });
+
+      const data = await response.json();
+      
+      const fetchedAmenities: Amenity[] = data.elements.map((element: any) => {
+        const distance = calculateDistance(centerLat, centerLon, element.lat, element.lon);
+        return {
+          id: element.id.toString(),
+          type: element.tags.amenity,
+          name: element.tags.name || `${element.tags.amenity}`,
+          lat: element.lat,
+          lon: element.lon,
+          distance
+        };
+      });
+
+      fetchedAmenities.sort((a, b) => (a.distance || 0) - (b.distance || 0));
+      setAmenities(fetchedAmenities.slice(0, 20)); // Top 20 closest
+    } catch (error) {
+      console.error('Failed to load amenities:', error);
+    } finally {
+      setLoadingAmenities(false);
+    }
+  };
+
+  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const R = 6371e3;
+    const φ1 = lat1 * Math.PI / 180;
+    const φ2 = lat2 * Math.PI / 180;
+    const Δφ = (lat2 - lat1) * Math.PI / 180;
+    const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+              Math.cos(φ1) * Math.cos(φ2) *
+              Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    return R * c;
+  };
+
+  const formatDistance = (meters: number): string => {
+    if (meters < 1000) {
+      return `${Math.round(meters)}m`;
+    }
+    return `${(meters / 1000).toFixed(1)}km`;
+  };
 
   const nextImage = () => {
     setCurrentImageIndex((prev) => (prev + 1) % images.length);
@@ -63,47 +195,89 @@ const PropertyDetailsModal: React.FC<PropertyDetailsModalProps> = ({ property, o
         <div style={{
           padding: '20px 24px',
           borderBottom: '1px solid #e5e7eb',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
           background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
           color: 'white'
         }}>
-          <div>
-            <h2 style={{ margin: 0, fontSize: '24px', fontWeight: 700 }}>
-              {props.name}
-            </h2>
-            <p style={{ margin: '4px 0 0 0', fontSize: '14px', opacity: 0.9 }}>
-              📍 {props.address}
-            </p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div style={{ flex: 1 }}>
+              <h2 style={{ margin: 0, fontSize: '24px', fontWeight: 700 }}>
+                {props.name}
+              </h2>
+              <p style={{ margin: '4px 0 0 0', fontSize: '14px', opacity: 0.9 }}>
+                📍 {props.address}
+              </p>
+            </div>
+            <button
+              onClick={onClose}
+              style={{
+                width: '36px',
+                height: '36px',
+                borderRadius: '50%',
+                border: 'none',
+                backgroundColor: 'rgba(255,255,255,0.2)',
+                color: 'white',
+                fontSize: '20px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'all 0.2s',
+                flexShrink: 0
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.3)';
+                e.currentTarget.style.transform = 'rotate(90deg)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.2)';
+                e.currentTarget.style.transform = 'rotate(0deg)';
+              }}
+            >
+              ✕
+            </button>
           </div>
-          <button
-            onClick={onClose}
-            style={{
-              width: '36px',
-              height: '36px',
-              borderRadius: '50%',
-              border: 'none',
-              backgroundColor: 'rgba(255,255,255,0.2)',
-              color: 'white',
-              fontSize: '20px',
-              cursor: 'pointer',
+
+          {/* Tabs */}
+          {showAmenities && (
+            <div style={{
               display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              transition: 'all 0.2s'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.3)';
-              e.currentTarget.style.transform = 'rotate(90deg)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.2)';
-              e.currentTarget.style.transform = 'rotate(0deg)';
-            }}
-          >
-            ✕
-          </button>
+              gap: '8px',
+              marginTop: '16px'
+            }}>
+              <button
+                onClick={() => setActiveTab('details')}
+                style={{
+                  padding: '8px 20px',
+                  border: 'none',
+                  borderRadius: '6px',
+                  backgroundColor: activeTab === 'details' ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.1)',
+                  color: 'white',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+              >
+                🏠 Details
+              </button>
+              <button
+                onClick={() => setActiveTab('amenities')}
+                style={{
+                  padding: '8px 20px',
+                  border: 'none',
+                  borderRadius: '6px',
+                  backgroundColor: activeTab === 'amenities' ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.1)',
+                  color: 'white',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+              >
+                🗺️ Nearby Amenities
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Content */}
@@ -112,6 +286,8 @@ const PropertyDetailsModal: React.FC<PropertyDetailsModalProps> = ({ property, o
           overflowY: 'auto',
           padding: '24px'
         }}>
+          {activeTab === 'details' ? (
+            <>{/* Details content */}
           {/* Image Gallery */}
           <div style={{ 
             position: 'relative', 
@@ -430,6 +606,206 @@ const PropertyDetailsModal: React.FC<PropertyDetailsModalProps> = ({ property, o
                   This is a premium listing with enhanced visibility
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Recommendations Section */}
+          {recommendations.length > 0 && (
+            <div style={{ marginTop: '32px', paddingTop: '32px', borderTop: '2px solid #f3f4f6' }}>
+              <h3 style={{ fontSize: '20px', fontWeight: 700, marginBottom: '16px', color: '#111827' }}>
+                💡 You May Also Like
+              </h3>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+                gap: '16px'
+              }}>
+                {recommendations.map((rec) => (
+                  <div
+                    key={rec.properties.id}
+                    onClick={() => {
+                      if (onPropertySelect) {
+                        onPropertySelect(rec);
+                      }
+                    }}
+                    style={{
+                      backgroundColor: '#f9fafb',
+                      borderRadius: '12px',
+                      overflow: 'hidden',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      border: '2px solid transparent'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.transform = 'translateY(-4px)';
+                      e.currentTarget.style.boxShadow = '0 8px 16px rgba(0,0,0,0.1)';
+                      e.currentTarget.style.borderColor = '#667eea';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = 'none';
+                      e.currentTarget.style.borderColor = 'transparent';
+                    }}
+                  >
+                    <img
+                      src={rec.properties.primary_image || 'https://via.placeholder.com/400x300'}
+                      alt={rec.properties.name}
+                      style={{
+                        width: '100%',
+                        height: '180px',
+                        objectFit: 'cover'
+                      }}
+                    />
+                    <div style={{ padding: '16px' }}>
+                      <div style={{
+                        fontSize: '16px',
+                        fontWeight: 700,
+                        color: '#111827',
+                        marginBottom: '8px',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                      }}>
+                        {rec.properties.name}
+                      </div>
+                      <div style={{
+                        fontSize: '20px',
+                        fontWeight: 700,
+                        color: '#667eea',
+                        marginBottom: '8px'
+                      }}>
+                        ${rec.properties.price?.toLocaleString()}
+                      </div>
+                      <div style={{
+                        fontSize: '13px',
+                        color: '#6b7280',
+                        marginBottom: '8px',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                      }}>
+                        📍 {rec.properties.address}
+                      </div>
+                      <div style={{
+                        display: 'flex',
+                        gap: '12px',
+                        fontSize: '12px',
+                        color: '#6b7280'
+                      }}>
+                        {rec.properties.bedrooms && (
+                          <span>🛏️ {rec.properties.bedrooms}</span>
+                        )}
+                        {rec.properties.bathrooms && (
+                          <span>🚿 {rec.properties.bathrooms}</span>
+                        )}
+                        {rec.properties.area_sqft && (
+                          <span>📐 {rec.properties.area_sqft.toLocaleString()} sqft</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+            </>) : (
+            /* Amenities Tab */
+            <div>
+              <h3 style={{ fontSize: '20px', fontWeight: 700, marginBottom: '16px', color: '#111827' }}>
+                🗺️ Nearby Amenities (within 1km)
+              </h3>
+              
+              {loadingAmenities ? (
+                <div style={{
+                  padding: '60px',
+                  textAlign: 'center',
+                  color: '#6b7280'
+                }}>
+                  <div style={{ fontSize: '48px', marginBottom: '16px' }}>⏳</div>
+                  <div style={{ fontSize: '16px', fontWeight: 600 }}>Loading nearby amenities...</div>
+                </div>
+              ) : amenities.length === 0 ? (
+                <div style={{
+                  padding: '60px',
+                  textAlign: 'center',
+                  color: '#6b7280'
+                }}>
+                  <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔍</div>
+                  <div style={{ fontSize: '16px', fontWeight: 600 }}>No amenities found nearby</div>
+                  <div style={{ fontSize: '14px', marginTop: '8px' }}>Try expanding the search radius</div>
+                </div>
+              ) : (
+                <div style={{
+                  display: 'grid',
+                  gap: '12px'
+                }}>
+                  {amenities.map((amenity) => (
+                    <div
+                      key={amenity.id}
+                      style={{
+                        padding: '16px',
+                        backgroundColor: '#f9fafb',
+                        borderRadius: '8px',
+                        border: '1px solid #e5e7eb',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '16px',
+                        transition: 'all 0.2s'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = '#f3f4f6';
+                        e.currentTarget.style.transform = 'translateX(4px)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = '#f9fafb';
+                        e.currentTarget.style.transform = 'translateX(0)';
+                      }}
+                    >
+                      <div style={{
+                        width: '48px',
+                        height: '48px',
+                        borderRadius: '50%',
+                        backgroundColor: 'white',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '24px',
+                        flexShrink: 0,
+                        border: '2px solid #e5e7eb'
+                      }}>
+                        {AMENITY_ICONS[amenity.type] || '📍'}
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{
+                          fontSize: '16px',
+                          fontWeight: 600,
+                          color: '#111827',
+                          marginBottom: '4px'
+                        }}>
+                          {amenity.name}
+                        </div>
+                        <div style={{
+                          fontSize: '13px',
+                          color: '#6b7280'
+                        }}>
+                          {amenity.type.replace('_', ' ')}
+                        </div>
+                      </div>
+                      <div style={{
+                        padding: '6px 12px',
+                        backgroundColor: '#dbeafe',
+                        color: '#1e40af',
+                        borderRadius: '12px',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        flexShrink: 0
+                      }}>
+                        📍 {formatDistance(amenity.distance || 0)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

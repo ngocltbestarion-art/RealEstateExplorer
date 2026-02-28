@@ -17,6 +17,9 @@ import SearchBar from '../SearchBar/SearchBar';
 import LoginModal from '../LoginModal/LoginModal';
 import FilterPanel from '../FilterPanel/FilterPanel';
 import PropertyList from '../PropertyList/PropertyList';
+import AnalyticsDashboard from '../AnalyticsDashboard/AnalyticsDashboard';
+import AmenitiesLayer from '../AmenitiesLayer/AmenitiesLayer';
+import AmenitiesPanel from '../AmenitiesPanel/AmenitiesPanel';
 
 const DEFAULT_CENTER: LatLngExpression = [40.7128, -74.006];
 
@@ -54,6 +57,11 @@ const MapView: React.FC = () => {
   const [selectedForComparison, setSelectedForComparison] = useState<number[]>([]);
   const [showComparison, setShowComparison] = useState(false);
   const [showHeatmap, setShowHeatmap] = useState(false);
+  const [showAnalytics, setShowAnalytics] = useState(false);
+  const [showAmenities, setShowAmenities] = useState(false);
+  const [amenityTypes, setAmenityTypes] = useState<string[]>([]);
+  const [amenityRadius, setAmenityRadius] = useState(1000);
+  const [amenityCenter, setAmenityCenter] = useState<[number, number] | null>(null);
 
   const { user, logout } = useAuth();
   const { favoriteIds } = useFavorites();
@@ -118,6 +126,14 @@ const MapView: React.FC = () => {
 
   const handleFeatureClick = (feature: PropertyFeature, latlng: L.LatLng) => {
     setSelectedProperty(feature);
+    
+    // Set amenity center when property is clicked
+    if (showAmenities && feature.geometry.type === 'Polygon') {
+      const coords = feature.geometry.coordinates[0];
+      const centerLat = coords.reduce((sum, c) => sum + c[1], 0) / coords.length;
+      const centerLon = coords.reduce((sum, c) => sum + c[0], 0) / coords.length;
+      setAmenityCenter([centerLat, centerLon]);
+    }
   };
 
   const handleDrawComplete = async (geoJson: GeoJSON.Feature) => {
@@ -464,15 +480,19 @@ const MapView: React.FC = () => {
 
           {/* Toggle Buttons */}
           <div style={{
-            display: 'flex',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, 1fr)',
             gap: '8px',
             padding: '12px',
             borderBottom: '1px solid #f3f4f6'
           }}>
             <button
-              onClick={() => setShowFilters(!showFilters)}
+              onClick={() => {
+                setShowFilters(!showFilters);
+                setShowPropertyList(false);
+                setShowAmenities(false);
+              }}
               style={{
-                flex: 1,
                 padding: '10px',
                 border: showFilters ? 'none' : '1px solid #e5e7eb',
                 borderRadius: '6px',
@@ -484,12 +504,15 @@ const MapView: React.FC = () => {
                 transition: 'all 0.2s'
               }}
             >
-              🔍 Filters
+              🔍
             </button>
             <button
-              onClick={() => setShowPropertyList(!showPropertyList)}
+              onClick={() => {
+                setShowPropertyList(!showPropertyList);
+                setShowFilters(false);
+                setShowAmenities(false);
+              }}
               style={{
-                flex: 1,
                 padding: '10px',
                 border: showPropertyList ? 'none' : '1px solid #e5e7eb',
                 borderRadius: '6px',
@@ -501,7 +524,64 @@ const MapView: React.FC = () => {
                 transition: 'all 0.2s'
               }}
             >
-              📋 List
+              📋
+            </button>
+            <button
+              onClick={() => {
+                setShowAmenities(!showAmenities);
+                setShowFilters(false);
+                setShowPropertyList(false);
+              }}
+              style={{
+                padding: '10px',
+                border: showAmenities ? 'none' : '1px solid #e5e7eb',
+                borderRadius: '6px',
+                backgroundColor: showAmenities ? '#2563eb' : 'white',
+                color: showAmenities ? 'white' : '#6b7280',
+                cursor: 'pointer',
+                fontSize: '13px',
+                fontWeight: 600,
+                transition: 'all 0.2s'
+              }}
+            >
+              🗺️
+            </button>
+          </div>
+
+          {/* Analytics Button */}
+          <div style={{
+            padding: '12px',
+            borderBottom: '1px solid #f3f4f6'
+          }}>
+            <button
+              onClick={() => setShowAnalytics(true)}
+              style={{
+                width: '100%',
+                padding: '12px',
+                border: 'none',
+                borderRadius: '8px',
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                color: 'white',
+                cursor: 'pointer',
+                fontSize: '14px',
+                fontWeight: 600,
+                transition: 'all 0.2s',
+                boxShadow: '0 4px 6px rgba(102, 126, 234, 0.3)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-2px)';
+                e.currentTarget.style.boxShadow = '0 6px 12px rgba(102, 126, 234, 0.4)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 4px 6px rgba(102, 126, 234, 0.3)';
+              }}
+            >
+              📊 Analytics Dashboard
             </button>
           </div>
 
@@ -570,7 +650,7 @@ const MapView: React.FC = () => {
           {/* Content Area */}
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {showFilters && <FilterPanel onFilterChange={handleFilterChange} />}
-            {showPropertyList && !showFilters && (
+            {showPropertyList && !showFilters && !showAmenities && (
               <PropertyList
                 properties={properties}
                 onPropertyClick={setSelectedProperty}
@@ -579,7 +659,13 @@ const MapView: React.FC = () => {
                 onToggleComparison={togglePropertyForComparison}
               />
             )}
-            {!showFilters && !showPropertyList && (
+            {showAmenities && !showFilters && !showPropertyList && (
+              <AmenitiesPanel
+                onTypesChange={setAmenityTypes}
+                onRadiusChange={setAmenityRadius}
+              />
+            )}
+            {!showFilters && !showPropertyList && !showAmenities && (
               <div style={{ padding: '16px' }}>
                 {/* Heatmap Toggle */}
                 <div>
@@ -723,6 +809,14 @@ const MapView: React.FC = () => {
               <HeatmapLayer properties={properties} />
             )}
 
+            {showAmenities && amenityCenter && amenityTypes.length > 0 && (
+              <AmenitiesLayer
+                center={amenityCenter}
+                radius={amenityRadius}
+                types={amenityTypes}
+              />
+            )}
+
             <DrawingToolsHandler onDrawComplete={handleDrawComplete} />
           </MapContainer>
 
@@ -730,6 +824,17 @@ const MapView: React.FC = () => {
             <PropertyDetailsModal
               property={selectedProperty}
               onClose={() => setSelectedProperty(null)}
+              showAmenities={showAmenities}
+              onPropertySelect={(newProperty) => {
+                setSelectedProperty(newProperty);
+                // Update amenity center if amenities are enabled
+                if (showAmenities && newProperty.geometry.type === 'Polygon') {
+                  const coords = (newProperty.geometry as any).coordinates[0];
+                  const centerLat = coords.reduce((sum: number, c: number[]) => sum + c[1], 0) / coords.length;
+                  const centerLon = coords.reduce((sum: number, c: number[]) => sum + c[0], 0) / coords.length;
+                  setAmenityCenter([centerLat, centerLon]);
+                }
+              }}
             />
           )}
         </div>
@@ -743,6 +848,10 @@ const MapView: React.FC = () => {
           onClose={() => setShowComparison(false)}
           onRemove={removeFromComparison}
         />
+      )}
+
+      {showAnalytics && (
+        <AnalyticsDashboard onClose={() => setShowAnalytics(false)} />
       )}
     </div>
   );
