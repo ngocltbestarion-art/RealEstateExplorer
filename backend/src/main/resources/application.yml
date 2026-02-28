@@ -1,0 +1,17 @@
+server:
+  port: 8080
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/realestate
+    username: realestate
+    password: realestate
+  jpa:
+    database-platform: org.hibernate.spatial.dialect.postgis.PostgisPG95Dialect
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: true
+    show-sql: true
+
