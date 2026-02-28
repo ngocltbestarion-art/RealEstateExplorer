@@ -4,7 +4,7 @@ import 'leaflet/dist/leaflet.css';
 import 'leaflet-draw/dist/leaflet.draw.css';
 import L, { LatLngExpression, GeoJSON as LeafletGeoJSON } from 'leaflet';
 import { PropertyFeature, PropertyFilter } from '../../types/property';
-import { getProperties, getFeaturedProperties, filterProperties } from '../../api/propertyApi';
+import { getProperties, getFeaturedProperties, filterProperties, searchProperties } from '../../api/propertyApi';
 import { useAuth } from '../../contexts/AuthContext';
 import { useFavorites } from '../../contexts/FavoriteContext';
 import LayerToggle from '../LayerToggle/LayerToggle';
